@@ -4,29 +4,24 @@
 Baseline в AgentSHAP зашит как 1.0: предполагается, что ответ на полном
 наборе инструментов совпадает сам с собой. Но temperature=0.5 захардкожена
 в token_shap/base.py, поэтому два прогона с одним и тем же тулсетом дают
-разные ответы, и настоящий потолок близости равен
+разные ответы, и настоящий потолок близости
 
     nu = E[ cos( ответ(N), ответ'(N) ) ]  <  1
 
 Разница (1 - nu) — постоянное положительное смещение, которое нормировка
-размазывает по всем инструментам, включая неиспользованные. Отсюда
-нарушение аксиомы dummy.
+размазывает по всем инструментам, включая неиспользованные.
 
-ВАЖНО про метрику. Чтобы nu был сопоставим с колонкой similarity из
-analyze(), считать его надо ровно так же, как это делает библиотека
-(base.py, _get_df_per_combination):
-
-    vectors = vectorizer.vectorize([baseline] + responses)   # фит на всём корпусе
-    sims    = vectorizer.calculate_similarity(vectors[0], vectors[1:])
-
-TfidfTextVectorizer.vectorize() переобучает TF-IDF на том, что ему дали.
-Если сравнивать тексты попарно, словарь строится по двум документам,
-и число получается несопоставимым с тем, что выдаёт analyze().
-Поэтому здесь генерируются все ответы, а векторизация одна на весь корпус.
+Про метрику. Чтобы nu был сопоставим с колонкой similarity из analyze(),
+считать его надо так же, как библиотека (agent_shap.py,
+_get_df_per_combination_with_usage): TF-IDF обучается на всём корпусе ответов
+разом, первый ответ — базлайн, остальные сравниваются с ним. Попарная
+векторизация строила бы словарь по двум документам и давала другое число.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from statistics import mean, stdev
 
 
@@ -34,113 +29,71 @@ from statistics import mean, stdev
 class NoiseFloor:
     nu: float
     sd: float
-    n_runs: int
-    samples: list[float] = field(repr=False, default_factory=list)
-    responses: list[str] = field(repr=False, default_factory=list)
-    tool_usage: list[dict] = field(repr=False, default_factory=list)
+    samples: list[float]
+    tool_sets: list[list[str]]
+    prompts: list[str]
+    model: str
 
     @property
     def bias(self) -> float:
         """Смещение, которое размазывается по вкладам: 1 - nu."""
         return 1.0 - self.nu
 
-    def expected_dummy_share(self, n_tools: int) -> float:
-        """Грубая оценка паразитного вклада на один неиспользованный инструмент."""
-        return self.bias / n_tools
-
     @property
     def behavioural_noise(self) -> float:
-        """Доля прогонов, где агент вызвал не тот же набор инструментов, что в первом.
-
-        Текстовый шум — это одно, а разные наборы вызванных инструментов
-        на одном и том же промпте — другое, и куда неприятнее.
-        """
-        if len(self.tool_usage) < 2:
-            return float("nan")
-        first = frozenset(k for k, v in self.tool_usage[0].items() if v > 0)
-        diff = sum(1 for u in self.tool_usage[1:]
-                   if frozenset(k for k, v in u.items() if v > 0) != first)
-        return diff / (len(self.tool_usage) - 1)
+        """Доля прогонов, где набор вызванных инструментов отличается от первого
+        прогона того же промпта. Текстовый шум — одно, другой набор вызовов
+        на одном и том же промпте — другое, и куда неприятнее."""
+        per_prompt = len(self.tool_sets) // len(self.prompts)
+        diffs = total = 0
+        for k in range(len(self.prompts)):
+            runs = self.tool_sets[k * per_prompt:(k + 1) * per_prompt]
+            diffs += sum(set(r) != set(runs[0]) for r in runs[1:])
+            total += len(runs) - 1
+        return diffs / total
 
     def __str__(self) -> str:
-        lines = [
-            f"noise floor  nu = {self.nu:.4f} ± {self.sd:.4f}   ({self.n_runs} прогонов)",
-            f"смещение   1 - nu = {self.bias:.4f}",
-        ]
-        bn = self.behavioural_noise
-        if bn == bn:  # not nan
-            lines.append(f"поведенческий шум: {bn:.1%} прогонов с другим набором инструментов")
-        return "\n".join(lines)
+        return (f"noise floor  nu = {self.nu:.4f} ± {self.sd:.4f}   "
+                f"({len(self.samples)} сравнений, {len(self.prompts)} промпта, {self.model})\n"
+                f"смещение   1 - nu = {self.bias:.4f}\n"
+                f"поведенческий шум: {self.behavioural_noise:.1%} прогонов с другим набором инструментов")
+
+    def to_json(self, path: Path | str) -> None:
+        Path(path).write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @classmethod
+    def from_json(cls, path: Path | str) -> "NoiseFloor":
+        return cls(**json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def measure_noise_floor(agent_shap, prompt: str, *, n_runs: int = 25,
-                        verbose: bool = True) -> NoiseFloor:
-    """Померить потолок близости независимых генераций с полным тулсетом.
+def measure_noise_floor(agent_shap, prompts: list[str], *, n_runs: int = 10) -> NoiseFloor:
+    """n_runs генераций с полным тулсетом на каждый промпт.
 
-    Параметры
-    ---------
-    agent_shap : объект AgentSHAP (bundle.agent_shap). Из него берутся
-        и инструменты, и векторизатор, чтобы метрика совпала с analyze().
-    prompt     : один промпт. Для устойчивой оценки стоит повторить на нескольких
-        и усреднить — см. measure_noise_floor_multi.
-    n_runs     : сколько генераций. Первая работает базлайном, остальные
-        с ней сравниваются, то есть замеров получается n_runs - 1.
-
-    Стоимость: n_runs вызовов модели (а не 2 * n_runs).
+    Стоимость: len(prompts) * n_runs вызовов агента.
     """
-    if n_runs < 2:
-        raise ValueError("нужно минимум 2 прогона: один базлайн и один для сравнения")
+    sims: list[float] = []
+    tool_sets: list[list[str]] = []
+    for prompt in prompts:
+        responses = []
+        for _ in range(n_runs):
+            text, usage = agent_shap._execute_with_tools(prompt, agent_shap.tools)
+            responses.append(text)
+            tool_sets.append(sorted(k for k, v in usage.items() if v > 0))
+        vectors = agent_shap.vectorizer.vectorize(responses) # векторизованные ответы 
 
-    responses: list[str] = []
-    usages: list[dict] = []
-    for i in range(n_runs):
-        text, usage = agent_shap._execute_with_tools(prompt, agent_shap.tools)
-        responses.append(text)
-        usages.append(usage)
-        if verbose:
-            called = sorted(k for k, v in usage.items() if v > 0)
-            print(f"  прогон {i + 1:>2}/{n_runs}: {len(text):>4} симв., инструменты: {called or '—'}")
-
-    # Ровно как в base.py::_get_df_per_combination — одна векторизация на корпус
-    vectors = agent_shap.vectorizer.vectorize(responses)
-    sims = agent_shap.vectorizer.calculate_similarity(vectors[0], vectors[1:])
-    sims = [float(s) for s in sims]
-
-    return NoiseFloor(
-        nu=mean(sims),
-        sd=stdev(sims) if len(sims) > 1 else 0.0,
-        n_runs=n_runs,
-        samples=sims,
-        responses=responses,
-        tool_usage=usages,
-    )
+        # близость меж ответами, тут считаем как
+        # «близость ответа к одному случайному базлайну».
+        sims += [float(s) for s in agent_shap.vectorizer.calculate_similarity(vectors[0], vectors[1:])] 
 
 
-def measure_noise_floor_multi(agent_shap, prompts: list[str], *, n_runs: int = 10,
-                              verbose: bool = True) -> NoiseFloor:
-    """То же самое на нескольких промптах: nu усредняется по ним.
+    return NoiseFloor(nu=mean(sims), sd=stdev(sims), samples=sims, tool_sets=tool_sets,
+                      prompts=list(prompts), model=agent_shap.model.model_name)
 
-    Один промпт может оказаться нетипично стабильным или нетипично шумным.
-    Для числа, которое пойдёт на слайд, лучше брать несколько.
-    """
-    all_sims: list[float] = []
-    all_resp: list[str] = []
-    all_usage: list[dict] = []
-    for p in prompts:
-        if verbose:
-            print(f"\n{p!r}")
-        nf = measure_noise_floor(agent_shap, p, n_runs=n_runs, verbose=verbose)
-        all_sims += nf.samples
-        all_resp += nf.responses
-        all_usage += nf.tool_usage
-        if verbose:
-            print(f"  -> nu = {nf.nu:.4f}")
+# Что есть vectorize и calculate_similarity в AGENTSHAP:
 
-    return NoiseFloor(
-        nu=mean(all_sims),
-        sd=stdev(all_sims) if len(all_sims) > 1 else 0.0,
-        n_runs=len(prompts) * n_runs,
-        samples=all_sims,
-        responses=all_resp,
-        tool_usage=all_usage,
-    )
+# def vectorize(self, texts):
+#     self.vectorizer = TfidfVectorizer().fit(texts)      # TF-IDF обучается на тех текстах, что передали
+#     return self.vectorizer.transform(texts).toarray()
+
+# def calculate_similarity(self, base_vector, comparison_vectors):
+#     return cosine_similarity(...)                        # sklearn, косинус между TF-IDF векторами

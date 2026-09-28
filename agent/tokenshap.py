@@ -1,88 +1,67 @@
 """
 Загрузка TokenSHAP (в нём же живёт AgentSHAP).
 
+Репозиторий клонируется рядом при первом запуске: это единственное место,
+где материалы лекции ходят за пределы своего репозитория. Код библиотеки
+нарочно не копируется к нам — разбирается ровно то, что лежит у авторов.
+
 Импортируем напрямую из .py-файлов, минуя пакетный __init__.py: он тянет
-torchvision и прочие тяжёлые зависимости, которые здесь не нужны.
+torchvision и прочее тяжёлое. token_shap/base.py импортирует torch на уровне
+модуля, но нужен он только классу HuggingFaceModel, которым мы не пользуемся,
+поэтому на время импорта вместо torch подставляется пустой модуль.
 """
 from __future__ import annotations
 
 import importlib.util
 import subprocess
 import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_URL = "https://github.com/GenAISHAP/TokenSHAP.git"
+REPO_COMMIT = "28b2f2c"          # версия, на которой проверены все числа лекции
+PATH = Path(__file__).resolve().parent.parent / "TokenSHAP"
 
-# Корень репозитория, а не текущая папка: иначе клон появится внутри notebooks/
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_PATH = REPO_ROOT / "TokenSHAP"
+# Температура, зашитая в библиотеке: base.py, OpenAIModel.generate() и
+# generate_with_tools(). Изменить её нельзя, отсюда недостижимый baseline.
+HARDCODED_TEMPERATURE = 0.5
 
 
 @dataclass
 class TokenShapAPI:
-    """Классы, которые нам нужны из библиотеки."""
-
     OpenAIModel: type
     TfidfTextVectorizer: type
     AgentSHAP: type
     create_function_tool: object
-    path: Path
-
-
-def ensure_tokenshap(path: Path | str = DEFAULT_PATH, *, quiet: bool = True) -> Path:
-    """Клонировать репозиторий, если его ещё нет рядом."""
-    path = Path(path)
-    if (path / "token_shap" / "base.py").exists():
-        return path
-    cmd = ["git", "clone", REPO_URL, str(path)]
-    if quiet:
-        cmd.append("-q")
-    subprocess.run(cmd, check=True)
-    return path
 
 
 def _load(module_name: str, file_path: Path):
     spec = importlib.util.spec_from_file_location(module_name, file_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"не удалось загрузить {file_path}")
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
-def load_tokenshap(path: Path | str = DEFAULT_PATH, *, clone_if_missing: bool = True) -> TokenShapAPI:
-    """Вернуть нужные классы TokenSHAP, минуя тяжёлый __init__."""
-    path = Path(path)
-    if clone_if_missing:
-        path = ensure_tokenshap(path)
-    if not (path / "token_shap" / "base.py").exists():
-        raise FileNotFoundError(
-            f"TokenSHAP не найден в {path.resolve()}. "
-            f"Клонируйте: git clone {REPO_URL}"
-        )
+def load_tokenshap() -> TokenShapAPI:
+    if not PATH.exists():
+        subprocess.run(["git", "clone", "-q", REPO_URL, str(PATH)], check=True)
+        subprocess.run(["git", "-C", str(PATH), "checkout", "-q", REPO_COMMIT], check=True)
 
-    try:
-        base = _load("token_shap.base", path / "token_shap" / "base.py")
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
-            f"{exc.name} не установлен. token_shap/base.py импортирует его на уровне модуля, "
-            f"поэтому обход __init__.py от этого не спасает. Поставьте: pip install {exc.name}"
-        ) from exc
-    tools_mod = _load("token_shap.tools", path / "token_shap" / "tools.py")
-    agent_mod = _load("token_shap.agent_shap", path / "token_shap" / "agent_shap.py")
-
+    # sklearn и scipy при импорте проверяют, загружен ли torch, и на пустом
+    # модуле падают. Поэтому они импортируются до заглушки, а сама заглушка
+    # живёт в sys.modules только на время импорта base.py
+    import sklearn.feature_extraction.text  # noqa: F401
+    import sklearn.metrics.pairwise  # noqa: F401
+    sys.modules["torch"] = types.ModuleType("torch")
+    base = _load("token_shap.base", PATH / "token_shap" / "base.py")
+    del sys.modules["torch"]
+    tools = _load("token_shap.tools", PATH / "token_shap" / "tools.py")
+    agent = _load("token_shap.agent_shap", PATH / "token_shap" / "agent_shap.py")
     return TokenShapAPI(
         OpenAIModel=base.OpenAIModel,
         TfidfTextVectorizer=base.TfidfTextVectorizer,
-        AgentSHAP=agent_mod.AgentSHAP,
-        create_function_tool=tools_mod.create_function_tool,
-        path=path,
+        AgentSHAP=agent.AgentSHAP,
+        create_function_tool=tools.create_function_tool,
     )
-
-
-# Температура, зашитая в библиотеке. Ни generate(), ни generate_with_tools()
-# не дают её изменить, и OpenAIModel.__init__ её не принимает. Отсюда
-# недостижимый baseline: два прогона с полным тулсетом не совпадают.
-HARDCODED_TEMPERATURE = 0.5
