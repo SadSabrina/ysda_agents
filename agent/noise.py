@@ -14,7 +14,7 @@ Baseline в AgentSHAP зашит как 1.0: предполагается, чт�
 Про метрику. Чтобы nu был сопоставим с колонкой similarity из analyze(),
 считать его надо так же, как библиотека (agent_shap.py,
 _get_df_per_combination_with_usage): TF-IDF обучается на всём корпусе ответов
-разом, первый ответ — базлайн, остальные сравниваются с ним. Попарная
+разом, первый ответ — бейзлайн, остальные сравниваются с ним. Попарная
 векторизация строила бы словарь по двум документам и давала другое число.
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ def measure_noise_floor(agent_shap, prompts: list[str], *, n_runs: int = 10) -> 
         vectors = agent_shap.vectorizer.vectorize(responses) # векторизованные ответы 
 
         # близость меж ответами, тут считаем как
-        # «близость ответа к одному случайному базлайну».
+        # «близость ответа к одному случайному бейзлайну».
         sims += [float(s) for s in agent_shap.vectorizer.calculate_similarity(vectors[0], vectors[1:])] 
 
 
