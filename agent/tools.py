@@ -1,18 +1,18 @@
 """
-Четыре инструмента агента.
+The agent's four tools.
 
-Все данные захардкожены: никуда не ходим, ничего не платим, результат
-воспроизводим. Единственный источник стохастичности — сама модель,
-и это ровно то, что мы изучаем.
+All data is hardcoded: no network calls, no costs, reproducible results.
+The only source of randomness is the model itself, and that is exactly
+what we study.
 """
 from __future__ import annotations
 
 WEATHER = {
-    "new york": "72°F, солнечно с лёгкими облаками",
-    "london":   "58°F, пасмурно, лёгкий дождь",
-    "tokyo":    "68°F, ясное небо",
-    "paris":    "65°F, переменная облачность",
-    "berlin":   "55°F, прохладно, ветрено",
+    "new york": "72°F, sunny with light clouds",
+    "london":   "58°F, overcast, light rain",
+    "tokyo":    "68°F, clear skies",
+    "paris":    "65°F, partly cloudy",
+    "berlin":   "55°F, cool and windy",
 }
 
 STOCKS = {
@@ -24,9 +24,9 @@ STOCKS = {
 }
 
 NEWS = {
-    "ai":      "OpenAI выпустила новую модель. Google DeepMind объявил о прорыве в обучении с подкреплением.",
-    "finance": "ФРС сохранила ставку. Рынки выросли на фоне позитивных данных по инфляции.",
-    "tech":    "Apple представила новый MacBook. Microsoft интегрировал ИИ в Office.",
+    "ai":      "OpenAI released a new model. Google DeepMind announced a breakthrough in reinforcement learning.",
+    "finance": "The Fed held rates steady. Markets rose on positive inflation data.",
+    "tech":    "Apple unveiled a new MacBook. Microsoft integrated AI into Office.",
 }
 
 _ALLOWED_CHARS = set("0123456789+-*/.() ")
@@ -34,7 +34,7 @@ _ALLOWED_CHARS = set("0123456789+-*/.() ")
 
 def get_weather(args: dict) -> str:
     city = args.get("city", "Unknown")
-    return f"Погода в {city}: {WEATHER.get(city.lower(), '70°F, комфортно')}"
+    return f"Weather in {city}: {WEATHER.get(city.lower(), '70°F, comfortable')}"
 
 
 def get_stock_price(args: dict) -> str:
@@ -46,35 +46,35 @@ def get_stock_price(args: dict) -> str:
 def calculate(args: dict) -> str:
     expression = args.get("expression", "0")
     if not all(c in _ALLOWED_CHARS for c in expression):
-        return "Ошибка: недопустимые символы"
+        return "Error: invalid characters"
     try:
-        return f"Результат: {eval(expression)}"  # noqa: S307 — вход отфильтрован выше
+        return f"Result: {eval(expression)}"  # noqa: S307 — input is filtered above
     except Exception as exc:
-        return f"Ошибка вычисления: {exc}"
+        return f"Calculation error: {exc}"
 
 
 def get_news(args: dict) -> str:
     topic = args.get("topic", "general")
-    return f"Новости по теме '{topic}': {NEWS.get(topic.lower(), 'Нет актуальных новостей.')}"
+    return f"News on '{topic}': {NEWS.get(topic.lower(), 'No current news.')}"
 
 
 _SPECS = [
-    (get_weather, "get_weather", "Получить текущую погоду для указанного города",
-     {"city": ("string", "Название города")}),
-    (get_stock_price, "get_stock_price", "Получить текущую цену акции по тикеру",
-     {"symbol": ("string", "Тикер акции, например AAPL")}),
-    (calculate, "calculate", "Выполнить математическое вычисление",
-     {"expression": ("string", "Математическое выражение, например '2 * 3.14 * 5'")}),
-    (get_news, "get_news", "Получить последние новости по заданной теме",
-     {"topic": ("string", "Тема новостей: ai, finance, tech")}),
+    (get_weather, "get_weather", "Get the current weather for the given city",
+     {"city": ("string", "City name")}),
+    (get_stock_price, "get_stock_price", "Get the current stock price by ticker",
+     {"symbol": ("string", "Stock ticker, e.g. AAPL")}),
+    (calculate, "calculate", "Perform a mathematical calculation",
+     {"expression": ("string", "Mathematical expression, e.g. '2 * 3.14 * 5'")}),
+    (get_news, "get_news", "Get the latest news on the given topic",
+     {"topic": ("string", "News topic: ai, finance, tech")}),
 ]
 
 
 def build_tools(create_function_tool) -> list:
-    """Собрать инструменты фабрикой из TokenSHAP.
+    """Build the tools with the TokenSHAP factory.
 
-    create_function_tool приходит из load_tokenshap(): библиотека грузится
-    динамически, поэтому импортировать её на уровне модуля нельзя.
+    create_function_tool comes from load_tokenshap(): the library is loaded
+    dynamically, so it cannot be imported at module level.
     """
     out = []
     for executor, name, description, params in _SPECS:

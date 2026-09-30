@@ -1,8 +1,8 @@
 """
-Агент, на котором всё разбирается: локальная Ollama + четыре инструмента
-+ AgentSHAP поверх.
+The agent everything is analysed on: local Ollama + four tools
++ AgentSHAP on top.
 
-Перенесено из agentshap_tutorial_rus.ipynb (XAI-open_materials).
+Ported from agentshap_tutorial_rus.ipynb (XAI-open_materials).
 
     from agent import build_agent_shap
     bundle = build_agent_shap()
@@ -36,7 +36,7 @@ class AgentBundle:
 
 def build_agent_shap(*, model_name: str = MODEL_NAME, url: str = OLLAMA_URL,
                      max_iterations: int = 5) -> AgentBundle:
-    """Библиотека, модель, инструменты и AgentSHAP одним вызовом."""
+    """Library, model, tools and AgentSHAP in one call."""
     api = load_tokenshap()
     model = build_model(api, url=url, model_name=model_name)
     tools = build_tools(api.create_function_tool)

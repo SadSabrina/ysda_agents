@@ -1,14 +1,15 @@
 """
-Загрузка TokenSHAP (в нём же живёт AgentSHAP).
+Loading TokenSHAP (AgentSHAP lives in it too).
 
-Репозиторий клонируется рядом при первом запуске: это единственное место,
-где материалы лекции ходят за пределы своего репозитория. Код библиотеки
-нарочно не копируется к нам — разбирается ровно то, что лежит у авторов.
+The repository is cloned next to ours on first run: this is the only place
+where the lecture materials reach outside their own repository. The library
+code is deliberately not copied here: we analyse exactly what the authors
+published.
 
-Импортируем напрямую из .py-файлов, минуя пакетный __init__.py: он тянет
-torchvision и прочее тяжёлое. token_shap/base.py импортирует torch на уровне
-модуля, но нужен он только классу HuggingFaceModel, которым мы не пользуемся,
-поэтому на время импорта вместо torch подставляется пустой модуль.
+We import directly from the .py files, bypassing the package __init__.py: it
+pulls in torchvision and other heavy things. token_shap/base.py imports torch
+at module level, but only the HuggingFaceModel class needs it, and we do not
+use that class, so an empty module stands in for torch during the import.
 """
 from __future__ import annotations
 
@@ -20,11 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_URL = "https://github.com/GenAISHAP/TokenSHAP.git"
-REPO_COMMIT = "28b2f2c"          # версия, на которой проверены все числа лекции
+REPO_COMMIT = "28b2f2c"          # version on which all lecture numbers were checked
 PATH = Path(__file__).resolve().parent.parent / "TokenSHAP"
 
-# Температура, зашитая в библиотеке: base.py, OpenAIModel.generate() и
-# generate_with_tools(). Изменить её нельзя, отсюда недостижимый baseline.
+# Temperature hardcoded in the library: base.py, OpenAIModel.generate() and
+# generate_with_tools(). It cannot be changed, hence the unreachable baseline.
 HARDCODED_TEMPERATURE = 0.5
 
 
@@ -49,9 +50,9 @@ def load_tokenshap() -> TokenShapAPI:
         subprocess.run(["git", "clone", "-q", REPO_URL, str(PATH)], check=True)
         subprocess.run(["git", "-C", str(PATH), "checkout", "-q", REPO_COMMIT], check=True)
 
-    # sklearn и scipy при импорте проверяют, загружен ли torch, и на пустом
-    # модуле падают. Поэтому они импортируются до заглушки, а сама заглушка
-    # живёт в sys.modules только на время импорта base.py
+    # sklearn and scipy check on import whether torch is loaded, and crash on
+    # an empty module. So they are imported before the stub, and the stub
+    # itself lives in sys.modules only while base.py is being imported
     import sklearn.feature_extraction.text  # noqa: F401
     import sklearn.metrics.pairwise  # noqa: F401
     sys.modules["torch"] = types.ModuleType("torch")

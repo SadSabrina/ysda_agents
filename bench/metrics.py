@@ -1,8 +1,8 @@
 """
-Оценка метода атрибуции шагов.
+Evaluation of a step attribution method.
 
-Метод — функция case -> список индексов-кандидатов, от самого вероятного
-к наименее. Всё, чего нет в списке, считается не найденным.
+A method is a function case -> list of candidate indices, from most likely
+to least likely. Anything not in the list counts as not found.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ Method = Callable[[Case], list[int]]
 
 
 def ranks(cases: list[Case], method: Method) -> np.ndarray:
-    """Ранг первой эталонной причины в выдаче метода, с единицы; inf — не найдена."""
+    """Rank of the first gold cause in the method's output, one-based; inf means not found."""
     out = []
     for c in cases:
         ranking = method(c)
@@ -28,15 +28,15 @@ def ranks(cases: list[Case], method: Method) -> np.ndarray:
 
 
 def evaluate(cases: list[Case], methods: dict[str, Method]) -> pd.DataFrame:
-    """top-1, top-3 и MRR каждого метода с интервалами бутстрапа."""
+    """top-1, top-3 and MRR of each method with bootstrap intervals."""
     rows = []
     for name, method in methods.items():
         r = ranks(cases, method)
-        row = {"метод": name, "n": len(cases)}
+        row = {"method": name, "n": len(cases)}
         for metric, values in (("top-1", (r <= 1).astype(float)),
                                ("top-3", (r <= 3).astype(float)),
                                ("MRR", 1 / r)):
             lo, hi = bootstrap_ci(values)
             row[metric] = f"{values.mean():.3f} [{lo:.3f}, {hi:.3f}]"
         rows.append(row)
-    return pd.DataFrame(rows).set_index("метод")
+    return pd.DataFrame(rows).set_index("method")

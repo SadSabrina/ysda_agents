@@ -1,25 +1,25 @@
-# TraceElephant (урезанная копия)
+# TraceElephant (trimmed copy)
 
-Источник: https://huggingface.co/datasets/TraceElephant/TraceElephant, файл `data.zip`,
-ревизия в `SOURCE_COMMIT`. Лицензия CC-BY-4.0. Статья: Chen et al., «Seeing the
+Source: https://huggingface.co/datasets/TraceElephant/TraceElephant, file `data.zip`,
+revision in `SOURCE_COMMIT`. License CC-BY-4.0. Paper: Chen et al., "Seeing the
 Whole Elephant: A Benchmark for Failure Attribution in LLM-based Multi-Agent
-Systems», arXiv:2604.22708, ACL 2026.
+Systems", arXiv:2604.22708, ACL 2026.
 
-Что изменено. Оригинал весит 830 МБ, из них 250 МБ — `step_records.json`, где на
-каждом шаге целиком повторяется весь входной контекст агента. Здесь:
+What was changed. The original is 830 MB, of which 250 MB is `step_records.json`, where
+every step repeats the agent's entire input context. Here:
 
-- `trace_metadata.json` скопирован без изменений: там разметка `mistake_agent`,
+- `trace_metadata.json` is copied unchanged: it holds the labels `mistake_agent`,
   `mistake_step`, `mistake_reason`;
-- в `step_records.json` у каждого шага удалено поле `input`; `step_id`,
-  `agent_id`, `agent_name`, `output`, `tool_logs` сохранены;
-- папки `images/` (скриншоты Magentic-One) не скопированы.
+- in `step_records.json` the `input` field is removed from every step; `step_id`,
+  `agent_id`, `agent_name`, `output`, `tool_logs` are kept;
+- the `images/` folders (Magentic-One screenshots) are not copied.
 
-Как получено:
+How it was produced:
 
 ```python
 import json
 from pathlib import Path
-src, dst = Path("data"), Path("data/trajectories/traceelephant")  # src — распакованный data.zip
+src, dst = Path("data"), Path("data/trajectories/traceelephant")  # src is the unpacked data.zip
 for meta in sorted(src.glob("*/*/trace_metadata.json")):
     run = meta.parent
     out = dst / run.parent.name / run.name

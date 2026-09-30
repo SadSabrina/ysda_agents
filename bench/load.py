@@ -1,14 +1,14 @@
 """
-Четыре датасета траекторий в одной схеме.
+Four trajectory datasets in one schema.
 
-Case.steps     — шаги траектории по порядку;
-Case.target    — индекс шага с поведением, которое объясняем, или None, если
-                 объясняется исход всей траектории (сбой, риск);
-Case.causes    — эталонные индексы шагов-причин;
-Case.chain     — эталонная цепочка (только agent-trajectory-attribution).
+Case.steps     — trajectory steps in order;
+Case.target    — index of the step whose behavior we explain, or None if
+                 we explain the outcome of the whole trajectory (failure, risk);
+Case.causes    — gold indices of the cause steps;
+Case.chain     — gold chain (agent-trajectory-attribution only).
 
-Все индексы — позиции в Case.steps, с нуля. В исходниках нумерация разная,
-сведение сделано здесь и только здесь.
+All indices are positions in Case.steps, zero-based. The sources number steps
+differently; they are unified here and only here.
 """
 from __future__ import annotations
 
@@ -40,17 +40,17 @@ class Case:
 
     @property
     def candidates(self) -> list[int]:
-        """Шаги, среди которых ищется причина: всё до цели, либо вся траектория."""
+        """Steps among which the cause is searched: everything before the target, or the whole trajectory."""
         return list(range(self.target if self.target is not None else len(self.steps)))
 
 
 def load_ata() -> list[Case]:
-    """agent-trajectory-attribution: AgentDojo, Agent3Sigma Stage и Canary.
+    """agent-trajectory-attribution: AgentDojo, Agent3Sigma Stage and Canary.
 
-    Нумерация компонентов в источниках разная: целые с 1 в AgentDojo,
-    'C0'.. в Canary, 'C1'.. в Stage, где вдобавок в trajectory лишний пустой
-    system-компонент в начале. Поэтому id сопоставляются через
-    components_metadata, а не по позиции в списке.
+    Component numbering differs across sources: integers from 1 in AgentDojo,
+    'C0'.. in Canary, 'C1'.. in Stage, where the trajectory also has an extra empty
+    system component at the start. So ids are matched through
+    components_metadata, not by position in the list.
     """
     cases = []
     for meta_path in sorted(DATA.glob("ata/*/*/*/metadata.json")):
@@ -79,12 +79,12 @@ def load_ata() -> list[Case]:
 
 
 def load_hintbench() -> list[Case]:
-    """HINTBench, тестовая часть: внутренние риски без атак.
+    """HINTBench, test split: internal risks without attacks.
 
-    step_id идёт с пропусками (часть шагов удалена авторами, id сохранены),
-    поэтому метки сопоставляются по step_id. Метки на несуществующие шаги
-    отбрасываются. Поле env есть не у всех записей, домен берётся из префикса
-    task_id. Валидационная часть без разметки шагов не загружается.
+    step_id has gaps (the authors removed some steps and kept the ids),
+    so labels are matched by step_id. Labels on steps that do not exist
+    are dropped. Not every record has the env field; the domain is taken from the
+    task_id prefix. The validation split has no step labels and is not loaded.
     """
     cases = []
     for x in json.loads((DATA / "hintbench" / "hintbench.json").read_text()):
@@ -103,7 +103,7 @@ def load_hintbench() -> list[Case]:
 
 
 def load_whowhen() -> list[Case]:
-    """Who&When: провалы мультиагентных систем. mistake_step — индекс в history с нуля."""
+    """Who&When: failures of multi-agent systems. mistake_step is a zero-based index into history."""
     cases = []
     for subset in ("Hand-Crafted", "Algorithm-Generated"):
         for p in sorted((DATA / "whowhen" / subset).glob("*.json"), key=lambda p: int(p.stem)):
@@ -118,10 +118,10 @@ def load_whowhen() -> list[Case]:
 
 
 def load_traceelephant() -> list[Case]:
-    """TraceElephant: полностью наблюдаемые трассы MAS. step_id с единицы.
+    """TraceElephant: fully observed MAS traces. step_id starts at one.
 
-    Две трассы размечены нечисловым mistake_step: 'none' пропускается,
-    'Step 36' читается как 36.
+    Two traces have a non-numeric mistake_step: 'none' is skipped,
+    'Step 36' is read as 36.
     """
     cases = []
     for meta_path in sorted(DATA.glob("traceelephant/*/*/trace_metadata.json")):
